@@ -5,26 +5,12 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import numpy as np
-import networkx as nx
-import matplotlib.pyplot as plt
-
-parser = ArgumentParser()
-parser.add_argument('--config',
-                    default=None,
-                    help='config file (.yml) containing the hyper-parameters for training. '
-                         'If None, use the nnU-Net config. See /config for examples.')
-parser.add_argument('--checkpoint', default=None, help='checkpoint of the model to test.')
-parser.add_argument('--device', default='cuda',
-                        help='device to use for training')
-parser.add_argument('--cuda_visible_device', nargs='*', type=int, default=[0,1],
-                        help='list of index where skip conn will be made.')
-parser.add_argument('--visualize', default=None, help='path to save visualized graphs to.')
 
 
 class obj:
     def __init__(self, dict1):
         self.__dict__.update(dict1)
-        
+
 def dict2obj(dict1):
     return json.loads(json.dumps(dict1), object_hook=obj)
 
@@ -37,6 +23,8 @@ def ensure_format(bboxes):
     return bboxes
 
 def plot_val_rel_sample(id_, path, image, points1, edges1, points2, edges2, attn_map=None, relative_coords=True):
+    import networkx as nx
+    import matplotlib.pyplot as plt
     path = Path(path)
     H, W = image.shape[0], image.shape[1]
     fig, ax = plt.subplots(1,3, figsize=(15,5), dpi=150)
@@ -46,11 +34,11 @@ def plot_val_rel_sample(id_, path, image, points1, edges1, points2, edges2, attn
     # Displaying the image
     ax[0].imshow(image)
     ax[0].axis('off')
-    
+
     # border_nodes = np.array([[1,1],[1,H-1],[W-1,H-1],[W-1,1]])
     border_nodes = np.array([[-1,-1],[-1,H+1],[W+1,H+1],[W+1,-1]])
     border_edges = [(0,1),(1,2),(2,3),(3,0)]
-    
+
     G1 = nx.Graph()
     G1.add_nodes_from(list(range(len(border_nodes))))
     coord_dict = {}
@@ -58,7 +46,7 @@ def plot_val_rel_sample(id_, path, image, points1, edges1, points2, edges2, attn
     for n, p in coord_dict.items():
         G1.nodes[n]['pos'] = p
     G1.add_edges_from(border_edges)
-    
+
     pos = nx.get_node_attributes(G1,'pos')
     nx.draw(G1, pos, ax=ax[1], node_size=1, node_color='darkgrey', edge_color='darkgrey', width=1.5, font_size=12, with_labels=False)
     nx.draw(G1, pos, ax=ax[2], node_size=1, node_color='darkgrey', edge_color='darkgrey', width=1.5, font_size=12, with_labels=False)
@@ -72,10 +60,10 @@ def plot_val_rel_sample(id_, path, image, points1, edges1, points2, edges2, attn
     for n, p in coord_dict.items():
         G.nodes[n]['pos'] = p
     G.add_edges_from(edges)
-    
+
     pos = nx.get_node_attributes(G,'pos')
     nx.draw(G, pos, ax=ax[1], node_size=10, node_color='lightcoral', edge_color='mediumorchid', width=1.5, font_size=12, with_labels=False)
-    
+
     G = nx.Graph()
     edges = [tuple(rel) for rel in edges2]
     nodes = list(np.unique(np.array(edges)))
@@ -87,21 +75,17 @@ def plot_val_rel_sample(id_, path, image, points1, edges1, points2, edges2, attn
     G.add_edges_from(edges)
     pos = nx.get_node_attributes(G,'pos')
     nx.draw(G, pos, ax=ax[2], node_size=10, node_color='lightcoral', edge_color='mediumorchid', width=1.5, font_size=12, with_labels=False)
-    
+
+    os.makedirs(path, exist_ok=True)
     plt.savefig(path / f'sample{id_}.png', bbox_inches='tight')
 
 
-def test(args):
-    
-    # Load the config files
-    with open(args.config) as f:
-        print('\n*** Config file')
-        print(args.config)
-        config = yaml.load(f, Loader=yaml.FullLoader)
-        print(config['log']['message'])
-    config = dict2obj(config)
-    os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, args.cuda_visible_device))
 
+
+import modal
+from train import app, s3_vol, s3_mount_path, vol, vol_mountpath
+@app.function(gpu=modal.gpu.A10G(count=1), volumes={vol_mountpath: vol, s3_mount_path: s3_vol}, timeout=86400)
+def test(config=None, checkpoint=None, device='cuda', cuda_visible_device=[0,1], visualize=f"{vol_mountpath}/inferenced"):
     import torch
     from monai.data import DataLoader
     from tqdm import tqdm
@@ -116,10 +100,19 @@ def test(args):
     from box_ops_2D import box_cxcywh_to_xyxy_np
     from utils import image_graph_collate_road_network
 
+    # Load the config files
+    with open(config) as f:
+        print('\n*** Config file')
+        print(config)
+        config = yaml.load(f, Loader=yaml.FullLoader)
+        print(config['log']['message'])
+    config = dict2obj(config)
+    os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, cuda_visible_device))
+
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.enabled = True
     torch.multiprocessing.set_sharing_strategy('file_system')
-    device = torch.device("cuda") if args.device=='cuda' else torch.device("cpu")
+    device = torch.device("cuda") if device=='cuda' else torch.device("cpu")
 
     net = build_model(config).to(device)
 
@@ -135,7 +128,7 @@ def test(args):
                             pin_memory=True)
 
     # load checkpoint
-    checkpoint = torch.load(args.checkpoint, map_location='cpu')
+    checkpoint = torch.load(checkpoint, map_location='cpu')
     net.load_state_dict(checkpoint['net'])
     net.eval()
 
@@ -154,9 +147,9 @@ def test(args):
 
             # extract data and put to device
             images, nodes, edges = batchdata[0], batchdata[1], batchdata[2]
-            images = images.to(args.device,  non_blocking=False)
-            nodes = [node.to(args.device,  non_blocking=False) for node in nodes]
-            edges = [edge.to(args.device,  non_blocking=False) for edge in edges]
+            images = images.to(device,  non_blocking=False)
+            nodes = [node.to(device,  non_blocking=False) for node in nodes]
+            edges = [edge.to(device,  non_blocking=False) for edge in edges]
 
             h, out = net(images)
             pred_nodes, pred_edges, pred_nodes_box, pred_nodes_box_score, pred_nodes_box_class, pred_edges_box_score, pred_edges_box_class = relation_infer(
@@ -165,10 +158,10 @@ def test(args):
             )
 
             # Save visualization
-            if args.visualize:
+            if visualize:
                 plot_val_rel_sample(
-                    id_, args.visualize, 
-                    images[0].permute(1,2,0).cpu().numpy(), 
+                    id_, visualize,
+                    images[0].permute(1,2,0).cpu().numpy(),
                     nodes[0].cpu().numpy(), edges[0].cpu().numpy(),
                     pred_nodes[0].cpu().numpy(), pred_edges[0]
                 )
@@ -209,7 +202,7 @@ def test(args):
 
             for node_, edge_, pred_node_, pred_edge_ in zip(nodes, edges, pred_nodes, pred_edges):
                 topo_results.append(compute_topo(node_.cpu(), edge_.cpu(), pred_node_, pred_edge_))
-    
+
     # Determine smd
     smd_mean = torch.tensor(smd_results).mean().item()
     smd_std = torch.tensor(smd_results).std().item()
@@ -265,7 +258,3 @@ def test(args):
 
     # Determine topo
     print(np.array(topo_results).mean(axis=0))
-
-if __name__ == '__main__':
-    args = parser.parse_args()
-    test(args)
