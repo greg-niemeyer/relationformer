@@ -1,40 +1,50 @@
 import os
+import modal.gpu
 import yaml
 import sys
 import json
 from argparse import ArgumentParser
 import numpy as np
 
-parser = ArgumentParser()
-parser.add_argument('--config',
-                    default=None,
-                    help='config file (.yml) containing the hyper-parameters for training. '
-                         'If None, use the nnU-Net config. See /config for examples.')
-parser.add_argument('--resume', default=None, help='checkpoint of the last epoch of the model')
-parser.add_argument('--device', default='cuda',
-                        help='device to use for training')
-parser.add_argument('--cuda_visible_device', nargs='*', type=int, default=[0,1],
-                        help='list of index where skip conn will be made')
-
 
 class obj:
     def __init__(self, dict1):
         self.__dict__.update(dict1)
-        
+
 def dict2obj(dict1):
     return json.loads(json.dumps(dict1), object_hook=obj)
 
-def main(args):
-    
-    # Load the config files
-    with open(args.config) as f:
-        print('\n*** Config file')
-        print(args.config)
-        config = yaml.load(f, Loader=yaml.FullLoader)
-        print(config['log']['message'])
-    config = dict2obj(config)
-    os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, args.cuda_visible_device))
-
+import modal
+app = modal.App(
+    image=modal.Image.from_registry(
+        "pytorch/pytorch:2.3.1-cuda12.1-cudnn8-devel", add_python="3.10"
+    )
+    .apt_install("libgl1", "libglib2.0-0", "libxrender1")
+    .pip_install_from_requirements(
+       requirements_txt="requirements.txt"
+    )
+    .copy_local_dir("models", "/root/models")
+    .workdir("/root/models/ops")
+    .run_commands(["pip uninstall torch torchvision torchaudio -y",
+                   "pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121",
+                   "python setup.py install"],
+                   gpu=modal.gpu.A10G(count=1))
+    .workdir("/root")
+    .run_commands("pip uninstall pyvista -y") # pyvista hack because it takes wayyyy to long to get this building
+    .pip_install("pyvista")
+    .pip_install("protobuf==3.20.3")
+    .copy_local_dir("configs", "/root/configs")
+    .add_local_python_source("dataset_road_network", "evaluator", "trainer", "utils", "losses", "metric_map", "metric_smd", "box_ops_2D", "inference", "models")
+)
+backend_secrets = modal.Secret.from_name("grail-backend-secrets")
+s3_creds = modal.Secret.from_name("aws-s3-secret")
+s3_bucket_name = "grail-pilot-storage"
+s3_vol = modal.CloudBucketMount(s3_bucket_name, secret=s3_creds)
+s3_mount_path = f"/{s3_bucket_name}"
+vol = modal.Volume.from_name("trained_weights", create_if_missing=True)
+vol_mountpath = "/trained_weights"
+@app.function(gpu=modal.gpu.A10G(count=1), volumes={vol_mountpath: vol, s3_mount_path: s3_vol}, timeout=86400)
+def main(config=None, resume=None, device='cuda', cuda_visible_device=[0,1]):
     import logging
     import ignite
     import torch
@@ -53,10 +63,23 @@ def main(args):
     from models.matcher import build_matcher
     from losses import SetCriterion
 
+
+    import torch.multiprocessing
+    torch.multiprocessing.set_sharing_strategy('file_system')
+
+    # Load the config files
+    with open(config) as f:
+        print('\n*** Config file')
+        print(config)
+        config = yaml.load(f, Loader=yaml.FullLoader)
+        print(config['log']['message'])
+    config = dict2obj(config)
+    os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, cuda_visible_device))
+
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.enabled = True
     torch.multiprocessing.set_sharing_strategy('file_system')
-    device = torch.device("cuda") if args.device=='cuda' else torch.device("cpu")
+    device = torch.device("cuda") if device=='cuda' else torch.device("cpu")
 
     net = build_model(config).to(device)
 
@@ -103,9 +126,9 @@ def main(args):
     )
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, config.TRAIN.LR_DROP)
-    
-    if args.resume:
-        checkpoint = torch.load(args.resume, map_location='cpu')
+
+    if resume:
+        checkpoint = torch.load(resume, map_location='cpu')
         net.load_state_dict(checkpoint['net'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         scheduler.load_state_dict(checkpoint['scheduler'])
@@ -133,10 +156,10 @@ def main(args):
         evaluator,
         config,
         device,
-        # fp16=args.fp16,
+        # fp16=fp16,
     )
 
-    if args.resume:
+    if resume:
         evaluator.state.epoch = last_epoch
         trainer.state.epoch = last_epoch
         trainer.state.iteration = trainer.state.epoch_length * last_epoch
@@ -152,12 +175,3 @@ def match_name_keywords(n, name_keywords):
             out = True
             break
     return out
-
-
-if __name__ == '__main__':
-    args = parser.parse_args()
-
-    import torch.multiprocessing
-    torch.multiprocessing.set_sharing_strategy('file_system')
-    
-    main(args)

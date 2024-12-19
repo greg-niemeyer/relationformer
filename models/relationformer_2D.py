@@ -10,12 +10,8 @@ import matplotlib.pyplot as plt
 import math
 import copy
 
-from .detr_transformer_3D import build_detr_transformer
 from .deformable_detr_backbone import build_backbone
 from .deformable_detr_2D import build_deforamble_transformer
-from .seresnet import build_seresnet
-from .swin_transformer_3D import build_swin_transformer
-from .position_encoding_3D import PositionEmbeddingSine3D, PositionEmbeddingLearned
 from .utils import nested_tensor_from_tensor_list, NestedTensor, inverse_sigmoid
 
 class RelationFormer(nn.Module):
@@ -39,7 +35,7 @@ class RelationFormer(nn.Module):
 
         self.class_embed = nn.Linear(config.MODEL.DECODER.HIDDEN_DIM, 2)
         self.bbox_embed = MLP(config.MODEL.DECODER.HIDDEN_DIM, config.MODEL.DECODER.HIDDEN_DIM, 4, 3)
-        
+
         if config.MODEL.DECODER.RLN_TOKEN > 0:
             self.relation_embed = MLP(config.MODEL.DECODER.HIDDEN_DIM*3, config.MODEL.DECODER.HIDDEN_DIM, 2, 3)
         else:
@@ -78,8 +74,8 @@ class RelationFormer(nn.Module):
 
         # Deformable Transformer backbone
         features, pos = self.encoder(samples)
-        
-        # Create 
+
+        # Create
         srcs = []
         masks = []
         for l, feat in enumerate(features):
@@ -105,7 +101,7 @@ class RelationFormer(nn.Module):
         query_embeds = None
         if not self.two_stage:
             query_embeds = self.query_embed.weight
-    
+
         hs, init_reference, inter_references, _, _ = self.decoder(
             srcs, masks, query_embeds, pos
         )
@@ -114,7 +110,7 @@ class RelationFormer(nn.Module):
 
         class_prob = self.class_embed(object_token)
         coord_loc = self.bbox_embed(object_token).sigmoid()
-        
+
         out = {'pred_logits': class_prob, 'pred_nodes': coord_loc}
         return hs, out
 
