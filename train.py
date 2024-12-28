@@ -16,9 +16,9 @@ def dict2obj(dict1):
 
 import modal
 app = modal.App(
-    image=modal.Image.from_registry("pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel", add_python="3.12")
+    image=modal.Image.from_registry("pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel")
     .apt_install("libgl1", "libglib2.0-0", "libxrender1")
-    .poetry_install_from_file(poetry_pyproject_toml="pyproject.toml", ignore_lockfile=True, gpu=modal.gpu.A10G(count=1), force_build=True)
+    .poetry_install_from_file(poetry_pyproject_toml="pyproject.toml", ignore_lockfile=True)
     .copy_local_dir("models", "/root/models")
     .workdir("/root/models/ops")
     .run_commands(["python setup.py install"], gpu=modal.gpu.A10G(count=1))
@@ -34,7 +34,7 @@ s3_mount_path = f"/{s3_bucket_name}"
 vol = modal.Volume.from_name("trained_weights", create_if_missing=True)
 vol_mountpath = "/trained_weights"
 @app.function(gpu=modal.gpu.A10G(count=1), volumes={vol_mountpath: vol, s3_mount_path: s3_vol}, timeout=86400)
-def main(config=None, resume=None, device='cuda', cuda_visible_device=[0,1]):
+def main(config=None, resume=None, device='cuda'):
     import logging
     import ignite
     import torch
@@ -64,7 +64,6 @@ def main(config=None, resume=None, device='cuda', cuda_visible_device=[0,1]):
         config = yaml.load(f, Loader=yaml.FullLoader)
         print(config['log']['message'])
     config = dict2obj(config)
-    os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, cuda_visible_device))
 
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.enabled = True
