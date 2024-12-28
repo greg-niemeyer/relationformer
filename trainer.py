@@ -21,7 +21,7 @@ class RelationformerTrainer(SupervisedTrainer):
     def _iteration(self, engine, batchdata):
         images, nodes, edges = batchdata[0], batchdata[1], batchdata[2]
         ids = batchdata[3]
-        
+
         # inputs, targets = self.get_batch(batchdata, image_keys=IMAGE_KEYS, label_keys="label")
         # inputs = torch.cat(inputs, 1)
         images = images.to(engine.state.device,  non_blocking=False)
@@ -31,9 +31,9 @@ class RelationformerTrainer(SupervisedTrainer):
 
         self.network.train()
         self.optimizer.zero_grad()
-        
+
         h, out = self.network(images)
-        
+
         valid_token = torch.argmax(out['pred_logits'], -1)
         # valid_token = torch.sigmoid(nodes_prob[...,3])>0.5
         print('valid_token number', valid_token.sum(1))
@@ -54,9 +54,9 @@ class RelationformerTrainer(SupervisedTrainer):
             _ = torch.nn.utils.clip_grad_norm_(self.network.parameters(), 0.1)
         else:
             _ = get_total_grad_norm(self.networm.parameters(), 0.1)
-    
+
         self.optimizer.step()
-        
+
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -96,7 +96,7 @@ def build_trainer(train_loader, net, loss, optimizer, scheduler, writer,
             output_transform=lambda x: x["loss"]["total"]
         ),
         CheckpointSaver(
-            save_dir=os.path.join(config.TRAIN.SAVE_PATH, "runs", '%s_%d' % (config.log.exp_name, config.DATA.SEED), 'models'),
+            save_dir=os.path.join(config.TRAIN.SAVE_PATH, "runs_2", '%s_%d' % (config.log.exp_name, config.DATA.SEED), 'models'),
             save_dict={"net": net, "optimizer": optimizer, "scheduler": scheduler},
             save_interval=1,
             n_saved=1),

@@ -76,10 +76,10 @@ class RelationformerEvaluator(SupervisedEvaluator):
         )
 
         self.config = kwargs.pop('config')
-        
+
     def _iteration(self, engine, batchdata):
         images, nodes, edges = batchdata[0], batchdata[1], batchdata[2]
-        
+
         # # inputs, targets = self.get_batch(batchdata, image_keys=IMAGE_KEYS, label_keys="label")
         # # inputs = torch.cat(inputs, 1)
         images = images.to(engine.state.device,  non_blocking=False)
@@ -87,15 +87,15 @@ class RelationformerEvaluator(SupervisedEvaluator):
         edges = [edge.to(engine.state.device,  non_blocking=False) for edge in edges]
 
         self.network.eval()
-        
+
         h, out = self.network(images)
 
         pred_nodes, pred_edges = relation_infer(
             h.detach(), out, self.network, self.config.MODEL.DECODER.OBJ_TOKEN, self.config.MODEL.DECODER.RLN_TOKEN
         )
-        
+
         # if self.config.TRAIN.SAVE_VAL:
-        #     root_path = os.path.join(self.config.TRAIN.SAVE_PATH, "runs", '%s_%d' % (self.config.log.exp_name, self.config.DATA.SEED), 'val_samples')
+        #     root_path = os.path.join(self.config.TRAIN.SAVE_PATH, "runs_2", '%s_%d' % (self.config.log.exp_name, self.config.DATA.SEED), 'val_samples')
         #     if not os.path.exists(root_path):
         #         os.makedirs(root_path)
         #     for i, (node, edge, pred_node, pred_edge) in enumerate(zip(nodes, edges, pred_nodes, pred_edges)):
@@ -106,7 +106,7 @@ class RelationformerEvaluator(SupervisedEvaluator):
 
         gc.collect()
         torch.cuda.empty_cache()
-        
+
         return {"images": images, "nodes": nodes, "edges": edges, "pred_nodes":pred_nodes, "pred_edges":pred_edges}
 
 
@@ -124,7 +124,7 @@ def build_evaluator(val_loader, net, optimizer, scheduler, writer, config, devic
     val_handlers = [
         StatsHandler(output_transform=lambda x: None),
         CheckpointSaver(
-            save_dir=os.path.join(config.TRAIN.SAVE_PATH, "runs", '%s_%d' % (config.log.exp_name, config.DATA.SEED), 'models'),
+            save_dir=os.path.join(config.TRAIN.SAVE_PATH, "runs_2", '%s_%d' % (config.log.exp_name, config.DATA.SEED), 'models'),
             save_dict={"net": net, "optimizer": optimizer, "scheduler": scheduler},
             save_key_metric=True,
             key_metric_n_saved=5,

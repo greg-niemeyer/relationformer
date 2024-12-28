@@ -124,7 +124,7 @@ def main(config=None, resume=None, device='cuda'):
         last_epoch = scheduler.last_epoch
 
     writer = SummaryWriter(
-        log_dir=os.path.join(config.TRAIN.SAVE_PATH, "runs", '%s_%d' % (config.log.exp_name, config.DATA.SEED)),
+        log_dir=os.path.join(config.TRAIN.SAVE_PATH, "runs_2", '%s_%d' % (config.log.exp_name, config.DATA.SEED)),
     )
 
     evaluator = build_evaluator(
