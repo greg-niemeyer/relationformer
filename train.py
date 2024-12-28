@@ -16,25 +16,14 @@ def dict2obj(dict1):
 
 import modal
 app = modal.App(
-    image=modal.Image.from_registry(
-        "pytorch/pytorch:2.3.1-cuda12.1-cudnn8-devel", add_python="3.10"
-    )
+    image=modal.Image.from_registry("pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel", add_python="3.12")
     .apt_install("libgl1", "libglib2.0-0", "libxrender1")
-    .pip_install_from_requirements(
-       requirements_txt="requirements.txt"
-    )
+    .poetry_install_from_file(poetry_pyproject_toml="pyproject.toml", ignore_lockfile=True, gpu=modal.gpu.A10G(count=1), force_build=True)
     .copy_local_dir("models", "/root/models")
     .workdir("/root/models/ops")
-    .run_commands(["pip uninstall torch torchvision torchaudio -y",
-                   "pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121",
-                   "python setup.py install"],
-                   gpu=modal.gpu.A10G(count=1))
+    .run_commands(["python setup.py install"], gpu=modal.gpu.A10G(count=1))
     .workdir("/root")
-    .run_commands("pip uninstall pyvista -y") # pyvista hack because it takes wayyyy to long to get this building
-    .pip_install("pyvista")
-    .pip_install("protobuf==3.20.3")
     .copy_local_dir("configs", "/root/configs")
-    .pip_install("svgwrite", "Rtree", "hopcroftkarp")
     .add_local_python_source("dataset_road_network", "evaluator", "train", "trainer", "utils", "losses", "metric_map", "metric_smd", "metric_topo", "box_ops_2D", "inference", "models")
 )
 backend_secrets = modal.Secret.from_name("grail-backend-secrets")
