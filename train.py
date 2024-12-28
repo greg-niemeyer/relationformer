@@ -18,7 +18,7 @@ import modal
 app = modal.App(
     image=modal.Image.from_registry("pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel")
     .apt_install("libgl1", "libglib2.0-0", "libxrender1")
-    .poetry_install_from_file(poetry_pyproject_toml="pyproject.toml", ignore_lockfile=True)
+    .poetry_install_from_file(poetry_pyproject_toml="pyproject.toml")
     .copy_local_dir("models", "/root/models")
     .workdir("/root/models/ops")
     .run_commands(["python setup.py install"], gpu=modal.gpu.A10G(count=1))
