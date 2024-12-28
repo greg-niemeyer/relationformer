@@ -85,7 +85,7 @@ def plot_val_rel_sample(id_, path, image, points1, edges1, points2, edges2, attn
 import modal
 from train import app, s3_vol, s3_mount_path, vol, vol_mountpath
 @app.function(gpu=modal.gpu.A10G(count=1), volumes={vol_mountpath: vol, s3_mount_path: s3_vol}, timeout=86400)
-def test(config=None, checkpoint=None, device='cuda', cuda_visible_device=[0,1], visualize=f"{vol_mountpath}/inferenced"):
+def test(config=None, checkpoint=None, device='cuda', cuda_visible_device=[0,1], visualize=f"{vol_mountpath}/inferenced_2"):
     import torch
     from monai.data import DataLoader
     from tqdm import tqdm
